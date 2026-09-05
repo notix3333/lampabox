@@ -2,7 +2,7 @@
   'use strict'
 
   const PLUGIN_NAME = 'Letterboxd Watchlist'
-  const PLUGIN_VERSION = '1.2.0'
+  const PLUGIN_VERSION = '1.2.1'
   const STORAGE_USERNAME = 'letterboxd_watchlist_username'
   const STORAGE_LISTS = 'letterboxd_public_lists'
   const STORAGE_API_URL = 'letterboxd_watchlist_api_url'
@@ -11,6 +11,7 @@
   const REQUEST_RETRY_DELAYS = [250, 500]
   const TMDB_RETRY_DELAYS = [200, 400]
   const TMDB_TIMEOUT_MS = 15000
+  const WATCHED_PAGE_DELAY_MS = 1200
   const CATALOG_COMPONENT = 'letterboxd_catalog'
   const FILTERS = [
     { value: 'all', title: 'Все' },
@@ -22,6 +23,8 @@
 
   const sourceStates = Object.create(null)
   const watchedSlugs = Object.create(null)
+  const watchedTitleYears = Object.create(null)
+  const observedLines = []
   let errorShown = false
   let watchedPromise = null
 
@@ -39,6 +42,37 @@
     const value = item && (item.release_date || item.first_air_date)
     const match = typeof value === 'string' ? value.match(/^(\d{4})/) : null
     return match ? Number(match[1]) : null
+  }
+
+  function knownYear(item) {
+    const explicit = Number(item && item.year)
+    return Number.isInteger(explicit) && explicit > 1800 ? explicit : releaseYear(item)
+  }
+
+  function titleYearKeys(item) {
+    const year = knownYear(item)
+    if (!year) return []
+
+    const titles = [item && item.title, item && item.name, originalTitle(item)]
+    const seen = Object.create(null)
+
+    return titles
+      .map(normalizeTitle)
+      .filter(function (title) {
+        const key = `${title}|${year}`
+        if (!title || seen[key]) return false
+        seen[key] = true
+        return true
+      })
+      .map(function (title) {
+        return `${title}|${year}`
+      })
+  }
+
+  function cloneCardData(movie) {
+    const clone = Object.assign({}, movie)
+    delete clone.ready
+    return clone
   }
 
   function localizedTitle(item) {
@@ -73,7 +107,10 @@
     if (!movie) return movie
 
     movie.letterboxd_watched = Boolean(
-      movie.letterboxd_slug && watchedSlugs[movie.letterboxd_slug],
+      (movie.letterboxd_slug && watchedSlugs[movie.letterboxd_slug]) ||
+        titleYearKeys(movie).some(function (key) {
+          return watchedTitleYears[key]
+        }),
     )
     movie.lampa_watched = isWatchedInLampa(movie, global.Lampa)
     movie.letterboxd_any_watched = movie.letterboxd_watched || movie.lampa_watched
@@ -280,6 +317,12 @@
 
         if (!usernamePattern.test(username) || !slugPattern.test(slug)) return
 
+        const bareUsernameEnteredAsList =
+          !entry.includes('/') &&
+          defaultUsername &&
+          entry.toLowerCase() === String(defaultUsername).toLowerCase()
+        if (bareUsernameEnteredAsList) return
+
         const key = `${username.toLowerCase()}/${slug.toLowerCase()}`
         if (seen[key]) return
         seen[key] = true
@@ -406,6 +449,16 @@
     if (watchedPromise) return watchedPromise
     if (!username) return Promise.resolve(watchedSlugs)
 
+    function refreshWatchedCards() {
+      Object.keys(sourceStates).forEach(function (key) {
+        const state = sourceStates[key]
+        state.results.forEach(updateWatchedFlags)
+        appendPendingCards(state)
+        decorateStateCards(state)
+      })
+      decorateObservedCards()
+    }
+
     function loadPage(page) {
       return requestCollection(
         { kind: 'watched', username: username, page: page },
@@ -416,12 +469,22 @@
         }
 
         payload.films.forEach(function (film) {
-          if (film && film.slug) watchedSlugs[film.slug] = true
+          if (!film) return
+          if (film.slug) watchedSlugs[film.slug] = true
+          titleYearKeys(film).forEach(function (key) {
+            watchedTitleYears[key] = true
+          })
         })
+
+        refreshWatchedCards()
 
         const nextPage = Number(payload.nextPage)
         if (Number.isInteger(nextPage) && nextPage > page && nextPage <= 100) {
-          return loadPage(nextPage)
+          return new Promise(function (resolve) {
+            setTimeout(resolve, WATCHED_PAGE_DELAY_MS)
+          }).then(function () {
+            return loadPage(nextPage)
+          })
         }
         return watchedSlugs
       })
@@ -429,17 +492,14 @@
 
     watchedPromise = loadPage(1)
       .then(function (slugs) {
-        Object.keys(sourceStates).forEach(function (key) {
-          const state = sourceStates[key]
-          state.results.forEach(updateWatchedFlags)
-          decorateStateCards(state)
-        })
+        refreshWatchedCards()
         log(`Letterboxd watched received: ${Object.keys(slugs).length}`)
         return slugs
       })
       .catch(function (error) {
-        log('Letterboxd watched error:', error)
-        notifyOnce(notificationFor(error))
+        log(`Letterboxd watched partially received: ${Object.keys(watchedSlugs).length}`, error)
+        if (!Object.keys(watchedSlugs).length) notifyOnce(notificationFor(error))
+        refreshWatchedCards()
         return watchedSlugs
       })
 
@@ -447,7 +507,12 @@
   }
 
   function decorateCard(card) {
-    if (!card || !card.data || typeof card.render !== 'function') return
+    if (
+      typeof document === 'undefined' ||
+      !card ||
+      !card.data ||
+      typeof card.render !== 'function'
+    ) return
     updateWatchedFlags(card.data)
 
     const html = card.render(true)
@@ -480,8 +545,14 @@
 
   function decorateStateCards(state) {
     state.lines.forEach(function (entry) {
-      const items = entry.line && Array.isArray(entry.line.items) ? entry.line.items : []
+      const items = Array.isArray(entry.items) ? entry.items : []
       items.forEach(decorateCard)
+    })
+  }
+
+  function decorateObservedCards() {
+    observedLines.forEach(function (entry) {
+      entry.items.forEach(decorateCard)
     })
   }
 
@@ -526,12 +597,14 @@
   function appendPendingCards(state) {
     state.lines.forEach(function (entry) {
       const line = entry.line
-      if (!line || typeof line.emit !== 'function') return
+      if (!line) return
 
       const visibleResults = filterCatalogMovies(state.results, entry.filter)
-      const items = Array.isArray(line.items) ? line.items : []
+      const items = Array.isArray(entry.items) ? entry.items : []
       for (let index = items.length; index < visibleResults.length; index += 1) {
-        line.emit('createAndAppend', visibleResults[index])
+        const movie = cloneCardData(visibleResults[index])
+        if (typeof line.append === 'function') line.append(movie)
+        else if (typeof line.emit === 'function') line.emit('createAndAppend', movie)
       }
     })
   }
@@ -649,7 +722,7 @@
       },
       field: {
         name: 'Letterboxd username',
-        description: 'Публичный username для Watchlist и коротких адресов lists.',
+        description: 'Только username профиля, например nikolaipopov. Watchlist подключается автоматически.',
       },
     })
 
@@ -660,11 +733,11 @@
         type: 'input',
         values: '',
         default: '',
-        placeholder: 'owner/list-slug, another-list',
+        placeholder: 'owner/list/list-slug или оставьте пустым',
       },
       field: {
-        name: 'Public lists',
-        description: 'Через запятую: owner/list-slug, полный Letterboxd URL или slug текущего username.',
+        name: 'Дополнительные public lists',
+        description: 'Не повторяйте username. Укажите только дополнительные списки или оставьте поле пустым.',
       },
     })
 
@@ -757,6 +830,7 @@
 
     lines.push({
       title: 'Фильтр и статусы',
+      wide: true,
       results: [
         {
           title: `Фильтр: ${filterInfo(filter).title}`,
@@ -764,7 +838,6 @@
           cover: filterArtwork(filter),
           poster: filterArtwork(filter),
           letterboxd_control: 'filter',
-          params: { style: { name: 'wide' } },
         },
       ],
       total_pages: 1,
@@ -775,7 +848,7 @@
       const state = sourceStates[config.key]
       if (!state) return
 
-      const results = filterCatalogMovies(state.results, filter)
+      const results = filterCatalogMovies(state.results, filter).map(cloneCardData)
       if (!results.length) return
 
       lines.push({
@@ -815,69 +888,62 @@
       const component = global.Lampa.Utils.createInstance(global.Lampa.InteractionMain, object)
       const filter = filterInfo(object.filter).value
       let stateListener = null
+      let destroyed = false
 
-      component.use({
-        onCreate: function () {
-          const username = String(global.Lampa.Storage.get(STORAGE_USERNAME, '') || '').trim()
-          const readiness = sources.map(function (config) {
+      component.create = function () {
+        const username = String(global.Lampa.Storage.get(STORAGE_USERNAME, '') || '').trim()
+        const readiness = sources.map(function (config) {
+          const state = sourceStates[config.key]
+          return state ? loadSource(state, apiBaseUrl) : Promise.resolve([])
+        })
+
+        if (component.activity && typeof component.activity.loader === 'function') {
+          component.activity.loader(true)
+        }
+
+        ensureWatched(username, apiBaseUrl)
+
+        stateListener = function (event) {
+          if (!event || (event.target !== 'favorite' && event.target !== 'timeline')) return
+          sources.forEach(function (config) {
             const state = sourceStates[config.key]
-            return state ? loadSource(state, apiBaseUrl) : Promise.resolve([])
+            if (!state) return
+            state.results.forEach(updateWatchedFlags)
+            decorateStateCards(state)
           })
-
-          readiness.push(ensureWatched(username, apiBaseUrl))
-
-          stateListener = function (event) {
-            if (!event || (event.target !== 'favorite' && event.target !== 'timeline')) return
-            sources.forEach(function (config) {
-              const state = sourceStates[config.key]
-              if (!state) return
-              state.results.forEach(updateWatchedFlags)
-              decorateStateCards(state)
-            })
-            if (component.activity && typeof component.activity.refresh === 'function') {
-              component.activity.refresh()
-            }
+          decorateObservedCards()
+          if (filter !== 'all' && component.activity && typeof component.activity.refresh === 'function') {
+            component.activity.refresh()
           }
-          global.Lampa.Listener.follow('state:changed', stateListener)
+        }
+        global.Lampa.Listener.follow('state:changed', stateListener)
 
-          Promise.all(readiness)
-            .then(function () {
-              if (component.destroyed) return
-              component.build(createCatalogLines(sources, filter))
-            })
-            .catch(function (error) {
-              log('catalog error:', error)
-              if (!component.destroyed) component.empty()
-            })
-        },
-        onInstance: function (line) {
-          line.use({
-            onInstance: function (card, data) {
-              card.use({
-                onCreate: function () {
-                  if (!data.letterboxd_control) decorateCard(card)
-                },
-                onUpdate: function () {
-                  if (!data.letterboxd_control) decorateCard(card)
-                },
-                onFavorite: function () {
-                  if (!data.letterboxd_control) decorateCard(card)
-                },
-                onEnter: function () {
-                  if (data.letterboxd_control === 'filter') openCatalogFilter(filter)
-                  else global.Lampa.Router.call('full', data)
-                },
-                onFocus: function () {
-                  global.Lampa.Background.change(global.Lampa.Utils.cardImgBackground(data))
-                },
-              })
-            },
+        Promise.all(readiness)
+          .then(function () {
+            if (destroyed) return
+            component.build(createCatalogLines(sources, filter))
           })
-        },
-        onDestroy: function () {
-          if (stateListener) global.Lampa.Listener.remove('state:changed', stateListener)
-        },
-      })
+          .catch(function (error) {
+            log('catalog error:', error)
+            if (!destroyed) component.build(createCatalogLines(sources, filter))
+          })
+      }
+
+      component.onAppend = function (line) {
+        line.onSelect = function (_target, data) {
+          if (data.letterboxd_control === 'filter') openCatalogFilter(filter)
+          else global.Lampa.Router.call('full', data)
+        }
+        line.onFocus = function (data) {
+          global.Lampa.Background.change(global.Lampa.Utils.cardImgBackground(data))
+        }
+        line.onAppend = decorateCard
+      }
+
+      component.onDestroy = function () {
+        destroyed = true
+        if (stateListener) global.Lampa.Listener.remove('state:changed', stateListener)
+      }
 
       return component
     }
@@ -927,23 +993,37 @@
     global.Lampa.Listener.follow('line', function (event) {
       const key = event && event.data && event.data.letterboxd_source
       const state = key && sourceStates[key]
-      if (!state) return
 
       if (event.type === 'create') {
-        if (!state.lines.some(function (entry) { return entry.line === event.line })) {
+        if (!observedLines.some(function (entry) { return entry.line === event.line })) {
+          observedLines.push({
+            line: event.line,
+            items: Array.isArray(event.items) ? event.items : [],
+          })
+        }
+
+        if (state && !state.lines.some(function (entry) { return entry.line === event.line })) {
           state.lines.push({
             line: event.line,
+            items: Array.isArray(event.items) ? event.items : [],
             filter: event.data.letterboxd_filter || 'all',
           })
         }
-        if (!state.completed) appendPendingCards(state)
-        decorateStateCards(state)
+        if (state && !state.completed) appendPendingCards(state)
+        if (state) decorateStateCards(state)
+        decorateObservedCards()
       } else if (event.type === 'append') {
-        decorateStateCards(state)
+        if (state) decorateStateCards(state)
+        decorateObservedCards()
       } else if (event.type === 'destroy') {
-        state.lines = state.lines.filter(function (entry) {
-          return entry.line !== event.line
-        })
+        if (state) {
+          state.lines = state.lines.filter(function (entry) {
+            return entry.line !== event.line
+          })
+        }
+        for (let index = observedLines.length - 1; index >= 0; index -= 1) {
+          if (observedLines[index].line === event.line) observedLines.splice(index, 1)
+        }
       }
     })
   }
@@ -961,7 +1041,7 @@
             loadSource(state, apiBaseUrl).then(function () {
               call({
                 title: state.title,
-                results: state.results,
+                results: state.results.map(cloneCardData),
                 total_pages: 1,
                 nomore: true,
                 letterboxd_source: config.key,

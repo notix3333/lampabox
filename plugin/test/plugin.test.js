@@ -70,6 +70,8 @@ test('parseListEntries accepts slugs, owner paths and public URLs', () => {
       { username: 'alice', slug: 'top-films', key: 'alice/top-films' },
     ],
   )
+
+  assert.deepEqual(parseListEntries('nikolai', 'nikolai'), [])
 })
 
 test('retryWithBackoff retries failures with the declared delays', async () => {
@@ -229,22 +231,21 @@ test('Lampa integration registers settings and loads the Worker only once per se
     page: 1,
   })
 
-  let catalogHooks
   let catalogLines
   const fakeComponent = {
-    destroyed: false,
-    use: (hooks) => {
-      catalogHooks = hooks
-    },
+    activity: { loader: () => {} },
     build: (lines) => {
       catalogLines = lines
     },
   }
   global.Lampa.Utils.createInstance = () => fakeComponent
-  registeredComponents[0].constructor({ filter: 'all' })
-  catalogHooks.onCreate()
+  const catalog = registeredComponents[0].constructor({ filter: 'all' })
+  assert.equal(typeof catalog.use, 'undefined')
+  assert.equal(typeof catalog.create, 'function')
+  catalog.create()
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(catalogLines[0].title, 'Фильтр и статусы')
+  assert.equal(catalogLines[0].wide, true)
   assert.equal(catalogLines[0].results[0].letterboxd_control, 'filter')
 
   delete require.cache[pluginPath]
@@ -326,7 +327,7 @@ test('Lampa integration appends TMDB matches to an already visible row', async (
           this.items.push(movie)
         },
       }
-      lineListener({ type: 'create', data, line: visibleLine })
+      lineListener({ type: 'create', data, line: visibleLine, items: visibleLine.items })
       resolve(visibleLine)
     })
   })

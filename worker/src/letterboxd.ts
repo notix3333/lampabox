@@ -14,7 +14,7 @@ export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 const LETTERBOXD_ORIGIN = 'https://letterboxd.com'
 const USER_AGENT =
-  'Mozilla/5.0 (compatible; LampaLetterboxdWatchlist/1.2; +https://github.com/notix3333/lampabox)'
+  'Mozilla/5.0 (compatible; LampaLetterboxdWatchlist/1.2.1; +https://github.com/notix3333/lampabox)'
 const RETRY_DELAYS_MS = [250, 500]
 
 type Fetcher = typeof fetch
