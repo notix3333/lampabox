@@ -96,7 +96,7 @@ https://raw.githubusercontent.com/notix3333/lampabox/main/plugin/letterboxd-watc
 В приватном репозитории этот адрес без GitHub-авторизации вернет `404`. Для текущей развернутой версии используйте единый публичный адрес Worker:
 
 ```text
-https://lampa-letterboxd-watchlist.rexikplay3.workers.dev/letterboxd-watchlist.js
+https://lampa-letterboxd-watchlist.rexikplay3.workers.dev/letterboxd-watchlist.js?v=1.1.1
 ```
 
 В этом файле уже указан API того же Worker. Отдельный хостинг или ручная настройка Worker URL для первой проверки не нужны.
@@ -220,7 +220,7 @@ Letterboxd не предоставляет стабильный публичны
 
 ## Как попробовать текущую версию
 
-1. Добавьте `https://lampa-letterboxd-watchlist.rexikplay3.workers.dev/letterboxd-watchlist.js` в список плагинов Lampa.
+1. Добавьте `https://lampa-letterboxd-watchlist.rexikplay3.workers.dev/letterboxd-watchlist.js?v=1.1.1` в список плагинов Lampa. Параметр версии помогает не использовать старую копию из кеша.
 2. В разделе `Настройки → Letterboxd` укажите свой `Letterboxd username` и при желании `Public lists`.
 3. Полностью перезапустите Lampa.
 

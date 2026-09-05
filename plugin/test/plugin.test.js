@@ -147,7 +147,10 @@ test('Lampa integration registers settings and loads the Worker only once per se
     },
     SettingsApi: {
       addComponent: (component) => components.push(component),
-      addParam: (param) => params.push(param),
+      addParam: (param) => {
+        if (param.param.type === 'input') assert.equal(param.param.values, '')
+        params.push(param)
+      },
     },
     Storage: {
       get: (name, fallback) => {

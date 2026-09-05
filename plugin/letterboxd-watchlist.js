@@ -2,7 +2,7 @@
   'use strict'
 
   const PLUGIN_NAME = 'Letterboxd Watchlist'
-  const PLUGIN_VERSION = '1.1.0'
+  const PLUGIN_VERSION = '1.1.1'
   const STORAGE_USERNAME = 'letterboxd_watchlist_username'
   const STORAGE_LISTS = 'letterboxd_public_lists'
   const STORAGE_API_URL = 'letterboxd_watchlist_api_url'
@@ -481,7 +481,13 @@
 
     global.Lampa.SettingsApi.addParam({
       component: 'letterboxd',
-      param: { name: STORAGE_USERNAME, type: 'input', default: '', placeholder: 'username' },
+      param: {
+        name: STORAGE_USERNAME,
+        type: 'input',
+        values: '',
+        default: '',
+        placeholder: 'username',
+      },
       field: {
         name: 'Letterboxd username',
         description: 'Публичный username для Watchlist и коротких адресов lists.',
@@ -493,6 +499,7 @@
       param: {
         name: STORAGE_LISTS,
         type: 'input',
+        values: '',
         default: '',
         placeholder: 'owner/list-slug, another-list',
       },
@@ -507,6 +514,7 @@
       param: {
         name: STORAGE_API_URL,
         type: 'input',
+        values: '',
         default: API_BASE_URL,
         placeholder: 'https://name.workers.dev',
       },
