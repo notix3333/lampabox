@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 const projectRoot = resolve(import.meta.dirname, '..')
 const sourcePath = resolve(projectRoot, 'plugin/letterboxd-watchlist.js')
 const outputPath = resolve(projectRoot, 'dist/letterboxd-watchlist.js')
-const defaultApiUrl = 'https://example.workers.dev'
+const defaultApiUrl = 'https://lampa-letterboxd-watchlist.rexikplay3.workers.dev'
 const apiBaseUrl = (process.env.API_BASE_URL || defaultApiUrl).replace(/\/+$/, '')
 
 let parsedUrl
@@ -20,9 +20,9 @@ if (parsedUrl.protocol !== 'https:' && parsedUrl.hostname !== 'localhost') {
 }
 
 const source = await readFile(sourcePath, 'utf8')
-const marker = "const API_BASE_URL = 'https://example.workers.dev'"
+const marker = /const API_BASE_URL = '[^']+'/
 
-if (!source.includes(marker)) {
+if (!marker.test(source)) {
   throw new Error('Could not find API_BASE_URL build marker in plugin source')
 }
 

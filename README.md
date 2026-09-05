@@ -1,8 +1,8 @@
-# Lampa Letterboxd Watchlist
+# Lampa Letterboxd
 
-Displays a public Letterboxd watchlist as a native content row in Lampa.
+Displays a public Letterboxd watchlist and public lists as native content rows in Lampa.
 
-Минимальный плагин для Lampa 3.0+: пользователь указывает публичный Letterboxd username, после перезапуска Lampa получает свежий watchlist и показывает найденные фильмы отдельной строкой `Letterboxd Watchlist` на главной странице. При выборе фильма открывается обычная карточка Lampa/TMDB.
+Плагин для Lampa 3.0+: пользователь указывает публичный Letterboxd username и при желании несколько публичных lists. После перезапуска Lampa получает коллекции и показывает каждую отдельной строкой на главной странице. Фильмы и сериалы открываются как обычные карточки Lampa/TMDB.
 
 ## Архитектура
 
@@ -10,17 +10,19 @@ Displays a public Letterboxd watchlist as a native content row in Lampa.
 Letterboxd → Cloudflare Worker → Lampa plugin → TMDB/Lampa
 ```
 
-- Stateless Cloudflare Worker последовательно загружает все страницы публичного watchlist, разбирает HTML и возвращает только `title`, `year`, `slug`.
-- Lampa-плагин один раз за запуск получает watchlist и с concurrency `5` ищет фильмы через нативный `Lampa.Api.search`.
+- Один stateless Cloudflare Worker последовательно загружает страницы публичного watchlist или list, разбирает HTML и возвращает только `title`, `year`, `slug`. Этот же Worker раздает готовый JS-плагин — второй сервер не нужен.
+- Lampa-плагин один раз за запуск получает настроенные коллекции и ищет одновременно в секциях TMDB Movie и TV через нативный `Lampa.Api.search`.
+- Общая для всех строк очередь ограничивает TMDB concurrency значением `5`; карточки появляются постепенно, не дожидаясь завершения всей коллекции.
+- Временные сетевые ошибки, `429` и `5xx` повторяются до двух раз с коротким backoff. Постоянные ошибки и закрытые коллекции не ретраятся.
 - База данных, авторизация, cookies, Letterboxd credentials и постоянный кеш отсутствуют.
-- Worker принимает только `GET /watchlist/:username`, не принимает произвольные URL и не является HTTP-прокси.
+- Worker принимает только фиксированные маршруты `GET /watchlist/:username` и `GET /list/:username/:slug`, не принимает произвольные URL и не является HTTP-прокси.
 
 Реализация Lampa API сверена с `yumata/lampa-source` 3.0+ на коммите `d2c3554` от 30 августа 2026 года: используются `SettingsApi`, `ContentRows`, `Api.search`, `Storage`, `Reguest` и `Noty`.
 
 ## Требования
 
 - Lampa 3.0+;
-- публичный Letterboxd watchlist;
+- публичный Letterboxd watchlist и/или публичные lists;
 - Cloudflare Workers account;
 - Node.js 22+ и npm только для разработки/сборки.
 
@@ -35,8 +37,11 @@ cd worker
 npm install
 npm test
 npm run typecheck
+npm run login
 npm run deploy
 ```
+
+`npm run login` запускает локальный Wrangler и сохраняет его конфигурацию внутри корневого `.cache/xdg-config`. Никакие npm-пакеты глобально не устанавливаются. Вместо браузерного входа можно передать `CLOUDFLARE_API_TOKEN` только процессу deploy.
 
 Для полностью безынтерактивного deploy можно передать Cloudflare API token через переменную окружения `CLOUDFLARE_API_TOKEN`. После deploy Wrangler напечатает адрес вида:
 
@@ -55,6 +60,7 @@ npm run dev
 
 ```bash
 curl http://localhost:8787/watchlist/USERNAME
+curl http://localhost:8787/list/OWNER/LIST-SLUG
 ```
 
 ### 2. Сборка standalone-плагина
@@ -71,7 +77,7 @@ API_BASE_URL='https://lampa-letterboxd-watchlist.<account>.workers.dev' npm run 
 dist/letterboxd-watchlist.js
 ```
 
-Без `API_BASE_URL` сборка использует безопасную заглушку `https://example.workers.dev`; такой плагин покажет уведомление о необходимости настроить Worker и не отправит запрос на этот адрес. Адрес Worker также можно ввести непосредственно в `Настройки → Letterboxd → Worker URL`, поэтому для первой проверки пересборка плагина не обязательна.
+Без `API_BASE_URL` сборка использует уже развернутый Worker проекта. Свой адрес Worker можно передать при сборке или ввести непосредственно в `Настройки → Letterboxd → Worker URL`.
 
 Для ручного использования без build-шага можно изменить константу в `plugin/letterboxd-watchlist.js`:
 
@@ -87,7 +93,13 @@ const API_BASE_URL = 'https://lampa-letterboxd-watchlist.<account>.workers.dev'
 https://raw.githubusercontent.com/notix3333/lampabox/main/plugin/letterboxd-watchlist.js
 ```
 
-В приватном репозитории этот адрес без GitHub-авторизации вернет `404`; в таком случае используйте GitHub Pages, другой HTTPS-хостинг либо описанный ниже локальный режим. Файл не содержит чужого Worker URL: после установки укажите адрес собственного Worker в настройках плагина.
+В приватном репозитории этот адрес без GitHub-авторизации вернет `404`. Для текущей развернутой версии используйте единый публичный адрес Worker:
+
+```text
+https://lampa-letterboxd-watchlist.rexikplay3.workers.dev/letterboxd-watchlist.js
+```
+
+В этом файле уже указан API того же Worker. Отдельный хостинг или ручная настройка Worker URL для первой проверки не нужны.
 
 Опубликуйте `dist/letterboxd-watchlist.js` по HTTPS, например через GitHub Pages, и получите прямой URL:
 
@@ -98,10 +110,18 @@ https://USERNAME.github.io/REPOSITORY/letterboxd-watchlist.js
 Добавьте этот URL в Lampa как обычный URL плагина. Затем:
 
 ```text
-Настройки → Letterboxd → Worker URL → Letterboxd username → перезапуск Lampa
+Настройки → Letterboxd → Worker URL → Letterboxd username / Public lists → перезапуск Lampa
 ```
 
-Без username плагин не делает запросов и не показывает пустую строку.
+Поле `Public lists` принимает значения через запятую или с новой строки:
+
+```text
+my-favorites
+other-user/tv-picks
+https://letterboxd.com/official/list/letterboxds-top-500-films/
+```
+
+Короткий slug использует username из первого поля. Форматы `owner/slug`, `owner/list/slug` и полный публичный URL работают без основного username. Пустые и повторяющиеся значения игнорируются.
 
 ## Сборка прямо из Git/GitHub
 
@@ -143,6 +163,7 @@ npm run dev:worker:lan # локальный Worker, доступный в LAN
 
 ```http
 GET /watchlist/:username
+GET /list/:username/:slug
 ```
 
 Успешный ответ:
@@ -150,7 +171,9 @@ GET /watchlist/:username
 ```json
 {
   "version": 1,
+  "kind": "watchlist",
   "username": "nikolai123",
+  "title": "Letterboxd Watchlist",
   "fetchedAt": "2026-09-05T11:30:00.000Z",
   "films": [
     {
@@ -161,6 +184,8 @@ GET /watchlist/:username
   ]
 }
 ```
+
+Ответ list дополнительно содержит `"kind": "list"`, `"slug"` и настоящее название списка из Letterboxd.
 
 Ошибки имеют единый формат:
 
@@ -173,14 +198,15 @@ GET /watchlist/:username
 }
 ```
 
-Поддерживаются `INVALID_USERNAME`, `USER_NOT_FOUND`, `WATCHLIST_UNAVAILABLE`, `LETTERBOXD_BLOCKED`, `LETTERBOXD_ERROR`, `PARSER_ERROR`, `INTERNAL_ERROR`. Все ответы содержат `Cache-Control: no-store`; CORS разрешает `GET` и `OPTIONS`.
+Поддерживаются `INVALID_USERNAME`, `INVALID_LIST`, `USER_NOT_FOUND`, `WATCHLIST_UNAVAILABLE`, `LIST_UNAVAILABLE`, `LETTERBOXD_BLOCKED`, `LETTERBOXD_ERROR`, `PARSER_ERROR`, `INTERNAL_ERROR`. Все ответы содержат `Cache-Control: no-store`; CORS разрешает `GET` и `OPTIONS`.
 
 ## Поведение и ограничения MVP
 
-- Watchlist загружается один раз за текущий запуск Lampa и не сохраняется между запусками.
+- Каждая коллекция загружается один раз за текущий запуск Lampa и не сохраняется между запусками.
 - Порядок Letterboxd сохраняется, случайные дубликаты удаляются по `slug`.
 - Пагинация ограничена 100 страницами, размер одной HTML-страницы — 2 MiB.
-- Совпадение TMDB принимается только для точного нормализованного title/original title и совместимого года; сомнительные совпадения пропускаются.
+- TMDB Movie и TV проверяются раздельно по `title`/`original_title` и `name`/`original_name`. Совпадение принимается только для точного нормализованного названия и совместимого года; сомнительные варианты пропускаются.
+- Строка показывается после первого найденного элемента, а следующие карточки добавляются в нее по мере matching. Исходный порядок Letterboxd при этом сохраняется.
 - Частичные результаты допустимы: ошибка поиска одного фильма не ломает всю строку.
 - Worker не обходит приватность и защиту Letterboxd.
 
@@ -188,17 +214,17 @@ Letterboxd не предоставляет стабильный публичны
 
 ## Нужен ли сервер
 
-Да, между Lampa и Letterboxd нужен HTTP-компонент из-за CORS и необходимости разбирать HTML Letterboxd. Обычный VPS, Docker и постоянно работающий домашний компьютер не нужны: эту роль выполняет небольшой stateless Cloudflare Worker. Для небольшого личного watchlist обычно достаточно [бесплатного тарифа Cloudflare Workers](https://developers.cloudflare.com/workers/platform/pricing/). На Free plan действует лимит 50 внешних subrequests за один вызов Worker; одна страница watchlist использует один такой запрос, поэтому очень большие watchlists могут потребовать платного тарифа или отдельной доработки архитектуры.
+Да, между Lampa и Letterboxd нужен HTTP-компонент из-за CORS и необходимости разбирать HTML Letterboxd. Обычный VPS, Docker и постоянно работающий домашний компьютер не нужны: эту роль выполняет небольшой stateless Cloudflare Worker. Для небольших личных коллекций обычно достаточно [бесплатного тарифа Cloudflare Workers](https://developers.cloudflare.com/workers/platform/pricing/); для очень больших lists следует учитывать актуальные лимиты внешних запросов Cloudflare.
 
 Без Worker плагин намеренно не обращается к Letterboxd напрямую и не использует сторонние публичные CORS-прокси.
 
 ## Как попробовать текущую версию
 
-1. Разверните Worker командой `cd worker && npm run deploy` либо запустите workflow `Deploy Cloudflare Worker` после добавления двух Cloudflare secrets.
-2. Опубликуйте `dist/letterboxd-watchlist.js` по HTTPS или включите workflow GitHub Pages.
-3. Добавьте URL JS-файла в список плагинов Lampa.
-4. В разделе `Настройки → Letterboxd` укажите полученный `Worker URL` и свой `Letterboxd username`.
-5. Полностью перезапустите Lampa.
+1. Добавьте `https://lampa-letterboxd-watchlist.rexikplay3.workers.dev/letterboxd-watchlist.js` в список плагинов Lampa.
+2. В разделе `Настройки → Letterboxd` укажите свой `Letterboxd username` и при желании `Public lists`.
+3. Полностью перезапустите Lampa.
+
+Чтобы использовать собственный deployment, выполните `cd worker && npm run login && npm run deploy`; deploy автоматически соберет JS и опубликует его как static asset того же Worker.
 
 Для теста в одной локальной сети можно выполнить `cd worker && npm run dev -- --ip 0.0.0.0`, указать в Lampa адрес компьютера вида `http://192.168.1.10:8787` и открыть плагин с локального HTTPS/HTTP-хостинга. На браузерных сборках Lampa HTTPS может блокировать HTTP Worker как mixed content, поэтому Cloudflare deploy является рекомендуемым вариантом.
 
@@ -226,18 +252,13 @@ Worker URL: http://<LAN-IP>:8787
 Небольшие доработки без смены архитектуры:
 
 - кнопку «Проверить соединение» и статус Worker в настройках;
-- ручное обновление watchlist без перезапуска Lampa;
+- ручное обновление коллекций без перезапуска Lampa;
 - локализацию настроек и уведомлений на языки Lampa;
 - ограничение количества карточек и выбор позиции строки;
 - более подробный диагностический лог несовпавших фильмов;
 - настройку concurrency TMDB;
 - поддержку нескольких Letterboxd usernames как отдельных строк.
 
-Средние по объёму доработки:
-
-- отображение публичных Letterboxd lists;
-- отдельная поддержка сериалов через TMDB TV search;
-- прогрессивное появление карточек во время TMDB matching;
-- повторные запросы с коротким backoff при временных ошибках Letterboxd/TMDB.
+Также можно сравнительно изолированно добавить кеширование в Cache API Worker, кнопку принудительного обновления, выбор включенных строк и лимит элементов для очень больших lists.
 
 Авторизация Letterboxd, ratings/diary/watched sync и запись обратно в Letterboxd потребуют существенно другой архитектуры и не относятся к лёгким дополнениям.

@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { hasNextWatchlistPage, parseWatchlistPage } from '../src/parser'
+import {
+  hasNextListPage,
+  hasNextWatchlistPage,
+  parseListPage,
+  parseListTitle,
+  parseWatchlistPage,
+} from '../src/parser'
 import { AppError } from '../src/types'
 
 const fixture = (name: string) =>
@@ -38,5 +44,25 @@ describe('parseWatchlistPage', () => {
 
     expect(hasNextWatchlistPage(html, 2)).toBe(true)
     expect(hasNextWatchlistPage(html, 3)).toBe(false)
+  })
+})
+
+describe('parseListPage', () => {
+  it('extracts ordered items and the public list title', async () => {
+    const html = await fixture('list-page.html')
+
+    expect(parseListPage(html)).toEqual([
+      { title: 'Shōgun', year: 2024, slug: 'shogun-2024' },
+      { title: 'Dune: Part Two', year: 2024, slug: 'dune-part-two' },
+    ])
+    expect(parseListTitle(html)).toBe('Great Television & Films')
+    expect(hasNextListPage(html, 'great-television-and-films', 2)).toBe(true)
+    expect(hasNextListPage(html, 'other-list', 2)).toBe(false)
+  })
+
+  it('rejects unrelated HTML', () => {
+    expect(() => parseListPage('<html><body>not a list</body></html>')).toThrowError(
+      expect.objectContaining<Partial<AppError>>({ code: 'PARSER_ERROR' }),
+    )
   })
 })

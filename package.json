@@ -1,8 +1,8 @@
 {
   "name": "lampa-letterboxd-watchlist",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Public Letterboxd watchlist row for Lampa 3.0+",
+  "description": "Public Letterboxd watchlists and lists for Lampa 3.0+",
   "scripts": {
     "build": "npm run build:worker && npm run build:plugin",
     "build:plugin": "node scripts/build-plugin.mjs",

@@ -98,18 +98,18 @@ function looksLikeWatchlist(html: string): boolean {
   )
 }
 
-export function parseWatchlistPage(html: string): LetterboxdFilm[] {
-  if (!html.trim() || !looksLikeWatchlist(html)) {
-    throw new AppError('PARSER_ERROR', 'Letterboxd returned an unrecognized watchlist page', 500)
-  }
+function looksLikeList(html: string): boolean {
+  const normalized = html.toLowerCase()
 
-  const semantic = semanticFilms(html)
-  return deduplicate(semantic.length ? semantic : fallbackFilms(html))
+  return (
+    normalized.includes('data-list-name') ||
+    normalized.includes('numbered-list-item') ||
+    normalized.includes('this list is empty')
+  )
 }
 
-export function hasNextWatchlistPage(html: string, nextPage: number): boolean {
+function nextPageLink(html: string, expectedSuffix: string): boolean {
   const document = parseDocument(html)
-  const expectedSuffix = `/watchlist/page/${nextPage}/`
 
   return Boolean(
     DomUtils.findOne(
@@ -124,4 +124,54 @@ export function hasNextWatchlistPage(html: string, nextPage: number): boolean {
       document.children,
     ),
   )
+}
+
+export function parseWatchlistPage(html: string): LetterboxdFilm[] {
+  if (!html.trim() || !looksLikeWatchlist(html)) {
+    throw new AppError('PARSER_ERROR', 'Letterboxd returned an unrecognized watchlist page', 500)
+  }
+
+  const semantic = semanticFilms(html)
+  return deduplicate(semantic.length ? semantic : fallbackFilms(html))
+}
+
+export function hasNextWatchlistPage(html: string, nextPage: number): boolean {
+  return nextPageLink(html, `/watchlist/page/${nextPage}/`)
+}
+
+export function parseListPage(html: string): LetterboxdFilm[] {
+  if (!html.trim() || !looksLikeList(html)) {
+    throw new AppError('PARSER_ERROR', 'Letterboxd returned an unrecognized list page', 500)
+  }
+
+  const semantic = semanticFilms(html)
+  return deduplicate(semantic.length ? semantic : fallbackFilms(html))
+}
+
+export function parseListTitle(html: string): string | null {
+  const document = parseDocument(html)
+  const meta = DomUtils.findOne(
+    (node) =>
+      isElement(node) &&
+      node.name === 'meta' &&
+      node.attribs.property === 'og:title' &&
+      Boolean(node.attribs.content),
+    document.children,
+  )
+
+  if (meta && isElement(meta)) return meta.attribs.content.trim() || null
+
+  const heading = DomUtils.findOne(
+    (node) => {
+      if (!isElement(node) || node.name !== 'h1') return false
+      return (node.attribs.class || '').split(/\s+/).includes('title-1')
+    },
+    document.children,
+  )
+
+  return heading && isElement(heading) ? DomUtils.textContent(heading).trim() || null : null
+}
+
+export function hasNextListPage(html: string, slug: string, nextPage: number): boolean {
+  return nextPageLink(html, `/list/${slug}/page/${nextPage}/`)
 }

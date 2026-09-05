@@ -6,15 +6,29 @@ export interface LetterboxdFilm {
 
 export interface WatchlistResponse {
   version: 1
+  kind: 'watchlist'
   username: string
+  title: string
+  fetchedAt: string
+  films: LetterboxdFilm[]
+}
+
+export interface PublicListResponse {
+  version: 1
+  kind: 'list'
+  username: string
+  slug: string
+  title: string
   fetchedAt: string
   films: LetterboxdFilm[]
 }
 
 export const ERROR_CODES = [
   'INVALID_USERNAME',
+  'INVALID_LIST',
   'USER_NOT_FOUND',
   'WATCHLIST_UNAVAILABLE',
+  'LIST_UNAVAILABLE',
   'LETTERBOXD_BLOCKED',
   'LETTERBOXD_ERROR',
   'PARSER_ERROR',

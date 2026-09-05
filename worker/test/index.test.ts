@@ -26,4 +26,15 @@ describe('Worker endpoint', () => {
     expect(response.headers.get('access-control-allow-methods')).toBe('GET, OPTIONS')
     expect(response.headers.get('cache-control')).toBe('no-store')
   })
+
+  it('rejects unsafe list slugs on the fixed list endpoint', async () => {
+    const response = await handleRequest(
+      new Request('https://worker.example/list/test/not%2Fa%2Fslug'),
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'INVALID_LIST' },
+    })
+  })
 })

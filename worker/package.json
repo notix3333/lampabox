@@ -1,12 +1,16 @@
 {
   "name": "lampa-letterboxd-watchlist-worker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "npm --prefix .. run build:plugin",
     "build": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler deploy --dry-run --outdir=dist",
     "dev": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler dev --local",
+    "predeploy": "npm --prefix .. run build:plugin",
     "deploy": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler deploy",
+    "login": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler login",
+    "whoami": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler whoami",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
