@@ -81,6 +81,14 @@ const API_BASE_URL = 'https://lampa-letterboxd-watchlist.<account>.workers.dev'
 
 ### 3. Установка в Lampa
 
+Уже опубликованный из ветки `main` standalone-файл можно подключить напрямую через jsDelivr:
+
+```text
+https://cdn.jsdelivr.net/gh/notix3333/lampabox@main/plugin/letterboxd-watchlist.js
+```
+
+Он не содержит чужого Worker URL: после установки укажите адрес собственного Worker в настройках плагина.
+
 Опубликуйте `dist/letterboxd-watchlist.js` по HTTPS, например через GitHub Pages, и получите прямой URL:
 
 ```text
