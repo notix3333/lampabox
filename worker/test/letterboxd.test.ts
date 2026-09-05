@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fetchPublicList, fetchWatchlist } from '../src/letterboxd'
+import { fetchPublicList, fetchWatched, fetchWatchedPage, fetchWatchlist } from '../src/letterboxd'
 
 const page = (film: string, slug: string, year: number, next?: number) => `
   <html><head><title>Test Watchlist</title></head><body>
@@ -108,5 +108,39 @@ describe('fetchWatchlist', () => {
     await expect(fetchPublicList('alice', 'public', fetcher)).resolves.toMatchObject({
       films: [{ title: 'Anora', year: 2024, slug: 'anora' }],
     })
+  })
+
+  it('loads public watched films through the fixed films path', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(`
+        <html><head><title>Films</title></head><body>
+          <ul class="poster-list">
+            <li><div data-item-name="Arrival (2016)" data-item-slug="arrival-2016"></div></li>
+          </ul>
+        </body></html>`),
+    )
+
+    await expect(fetchWatched('alice', fetcher)).resolves.toEqual([
+      { title: 'Arrival', year: 2016, slug: 'arrival-2016' },
+    ])
+    expect(fetcher.mock.calls[0][0]).toBe('https://letterboxd.com/alice/films/')
+  })
+
+  it('loads one watched page for bounded client-side pagination', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(`
+        <html><head><title>Films</title></head><body>
+          <ul class="poster-list">
+            <li><div data-item-name="Arrival (2016)" data-item-slug="arrival-2016"></div></li>
+          </ul>
+          <a class="next" href="/alice/films/page/3/">Next</a>
+        </body></html>`),
+    )
+
+    await expect(fetchWatchedPage('alice', 2, fetcher)).resolves.toEqual({
+      films: [{ title: 'Arrival', year: 2016, slug: 'arrival-2016' }],
+      nextPage: 3,
+    })
+    expect(fetcher.mock.calls[0][0]).toBe('https://letterboxd.com/alice/films/page/2/')
   })
 })

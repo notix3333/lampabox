@@ -1,5 +1,10 @@
-import { AppError, type PublicListResponse, type WatchlistResponse } from './types'
-import { fetchPublicList, fetchWatchlist } from './letterboxd'
+import {
+  AppError,
+  type PublicListResponse,
+  type WatchedResponse,
+  type WatchlistResponse,
+} from './types'
+import { fetchPublicList, fetchWatchedPage, fetchWatchlist } from './letterboxd'
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/i
 const LIST_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,119}$/i
@@ -45,6 +50,17 @@ function usernameFromPath(pathname: string): string | null {
   }
 }
 
+function watchedUsernameFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/watched\/([^/]+)\/?$/)
+  if (!match) return null
+
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
+}
+
 function listFromPath(pathname: string): { username: string; slug: string } | null {
   const match = pathname.match(/^\/list\/([^/]+)\/([^/]+)\/?$/)
   if (!match) return null
@@ -68,9 +84,43 @@ export async function handleRequest(request: Request): Promise<Response> {
     )
   }
 
-  const pathname = new URL(request.url).pathname
+  const url = new URL(request.url)
+  const pathname = url.pathname
   const list = listFromPath(pathname)
+  const watchedUsername = watchedUsernameFromPath(pathname)
   const username = usernameFromPath(pathname)
+
+  if (watchedUsername !== null) {
+    if (!USERNAME_PATTERN.test(watchedUsername)) {
+      return errorResponse(new AppError('INVALID_USERNAME', 'Letterboxd username is invalid', 400))
+    }
+
+    const page = Number(url.searchParams.get('page') || 1)
+    if (!Number.isInteger(page) || page < 1 || page > 100) {
+      return errorResponse(new AppError('INVALID_PAGE', 'Letterboxd page is invalid', 400))
+    }
+
+    try {
+      const { films, nextPage } = await fetchWatchedPage(watchedUsername, page)
+      const result: WatchedResponse = {
+        version: 1,
+        kind: 'watched',
+        username: watchedUsername,
+        title: 'Letterboxd Watched',
+        page,
+        nextPage,
+        fetchedAt: new Date().toISOString(),
+        films,
+      }
+
+      return jsonResponse(result)
+    } catch (error) {
+      if (error instanceof AppError) return errorResponse(error)
+
+      console.error('Unexpected worker error', error)
+      return errorResponse(new AppError('INTERNAL_ERROR', 'Unexpected internal error', 500))
+    }
+  }
 
   if (list) {
     if (!USERNAME_PATTERN.test(list.username)) {

@@ -2,6 +2,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   createTaskLimiter,
+  filterCatalogMovies,
+  isWatchedInLampa,
   mapWithConcurrency,
   normalizeTitle,
   parseListEntries,
@@ -108,6 +110,33 @@ test('createTaskLimiter enforces one shared concurrency limit', async () => {
   assert.equal(maximum, 2)
 })
 
+test('isWatchedInLampa accepts an explicit mark or completed playback', () => {
+  const marked = {
+    Favorite: { check: () => ({ viewed: true }) },
+    Timeline: { watched: () => ({ percent: 0 }) },
+  }
+  const completed = {
+    Favorite: { check: () => ({}) },
+    Timeline: { watched: () => ({ percent: 95 }) },
+  }
+
+  assert.equal(isWatchedInLampa({ original_title: 'Arrival' }, marked), true)
+  assert.equal(isWatchedInLampa({ original_title: 'Arrival' }, completed), true)
+})
+
+test('filterCatalogMovies distinguishes combined and source-specific statuses', () => {
+  const movies = [
+    { id: 1, letterboxd_watched: true, lampa_watched: false },
+    { id: 2, letterboxd_watched: false, lampa_watched: true },
+    { id: 3, letterboxd_watched: false, lampa_watched: false },
+  ]
+
+  assert.deepEqual(filterCatalogMovies(movies, 'watched').map((movie) => movie.id), [1, 2])
+  assert.deepEqual(filterCatalogMovies(movies, 'unwatched').map((movie) => movie.id), [3])
+  assert.deepEqual(filterCatalogMovies(movies, 'letterboxd').map((movie) => movie.id), [1])
+  assert.deepEqual(filterCatalogMovies(movies, 'lampa').map((movie) => movie.id), [2])
+})
+
 test('mapWithConcurrency keeps result order and respects the limit', async () => {
   let active = 0
   let maximum = 0
@@ -128,20 +157,34 @@ test('Lampa integration registers settings and loads the Worker only once per se
   const components = []
   const params = []
   const rows = []
-  let requests = 0
+  const requestUrls = []
+  const registeredComponents = []
+  const menuButtons = []
+  const activities = []
 
   delete require.cache[pluginPath]
   delete global.plugin_letterboxd_watchlist_ready
   global.appready = true
   global.Lampa = {
     Api: { search: () => {} },
+    Activity: { push: (activity) => activities.push(activity) },
+    Component: {
+      add: (name, constructor) => registeredComponents.push({ name, constructor }),
+    },
     ContentRows: { add: (row) => rows.push(row) },
-    Listener: { follow: () => {} },
+    InteractionMain: function () {},
+    Listener: { follow: () => {}, remove: () => {} },
+    Menu: {
+      addButton: (_icon, title, action) => {
+        menuButtons.push({ title, action })
+        return { attr: () => {} }
+      },
+    },
     Noty: { show: () => {} },
     Reguest: class {
       timeout() {}
-      native(_url, resolve) {
-        requests += 1
+      native(url, resolve) {
+        requestUrls.push(url)
         resolve({ version: 1, films: [] })
       }
     },
@@ -159,6 +202,7 @@ test('Lampa integration registers settings and loads the Worker only once per se
         return fallback
       },
     },
+    Utils: { createInstance: () => null },
   }
 
   require(pluginPath)
@@ -170,7 +214,38 @@ test('Lampa integration registers settings and loads the Worker only once per se
   assert.equal(components.length, 1)
   assert.equal(params.length, 3)
   assert.equal(rows.length, 1)
-  assert.equal(requests, 1)
+  assert.deepEqual(requestUrls.sort(), [
+    'https://worker.example/watched/example?page=1',
+    'https://worker.example/watchlist/example',
+  ])
+  assert.equal(registeredComponents[0].name, 'letterboxd_catalog')
+  assert.equal(menuButtons[0].title, 'Letterboxd')
+
+  menuButtons[0].action()
+  assert.deepEqual(activities[0], {
+    component: 'letterboxd_catalog',
+    title: 'Letterboxd',
+    filter: 'all',
+    page: 1,
+  })
+
+  let catalogHooks
+  let catalogLines
+  const fakeComponent = {
+    destroyed: false,
+    use: (hooks) => {
+      catalogHooks = hooks
+    },
+    build: (lines) => {
+      catalogLines = lines
+    },
+  }
+  global.Lampa.Utils.createInstance = () => fakeComponent
+  registeredComponents[0].constructor({ filter: 'all' })
+  catalogHooks.onCreate()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(catalogLines[0].title, 'Фильтр и статусы')
+  assert.equal(catalogLines[0].results[0].letterboxd_control, 'filter')
 
   delete require.cache[pluginPath]
   delete global.plugin_letterboxd_watchlist_ready

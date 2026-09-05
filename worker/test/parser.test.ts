@@ -2,9 +2,11 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import {
   hasNextListPage,
+  hasNextFilmsPage,
   hasNextWatchlistPage,
   parseListPage,
   parseListTitle,
+  parseFilmsPage,
   parseWatchlistPage,
 } from '../src/parser'
 import { AppError } from '../src/types'
@@ -64,5 +66,18 @@ describe('parseListPage', () => {
     expect(() => parseListPage('<html><body>not a list</body></html>')).toThrowError(
       expect.objectContaining<Partial<AppError>>({ code: 'PARSER_ERROR' }),
     )
+  })
+})
+
+describe('parseFilmsPage', () => {
+  it('extracts a public watched-films page and its pagination', async () => {
+    const html = await fixture('films-page.html')
+
+    expect(parseFilmsPage(html)).toEqual([
+      { title: 'Arrival', year: 2016, slug: 'arrival-2016' },
+      { title: 'Shōgun', year: 2024, slug: 'shogun-2024' },
+    ])
+    expect(hasNextFilmsPage(html, 2)).toBe(true)
+    expect(hasNextFilmsPage(html, 3)).toBe(false)
   })
 })

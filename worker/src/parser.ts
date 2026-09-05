@@ -108,6 +108,16 @@ function looksLikeList(html: string): boolean {
   )
 }
 
+function looksLikeFilmsPage(html: string): boolean {
+  const normalized = html.toLowerCase()
+
+  return (
+    normalized.includes('data-item-slug') ||
+    (normalized.includes('films') &&
+      (normalized.includes('poster-list') || normalized.includes('no films')))
+  )
+}
+
 function nextPageLink(html: string, expectedSuffix: string): boolean {
   const document = parseDocument(html)
 
@@ -174,4 +184,17 @@ export function parseListTitle(html: string): string | null {
 
 export function hasNextListPage(html: string, slug: string, nextPage: number): boolean {
   return nextPageLink(html, `/list/${slug}/page/${nextPage}/`)
+}
+
+export function parseFilmsPage(html: string): LetterboxdFilm[] {
+  if (!html.trim() || !looksLikeFilmsPage(html)) {
+    throw new AppError('PARSER_ERROR', 'Letterboxd returned an unrecognized films page', 500)
+  }
+
+  const semantic = semanticFilms(html)
+  return deduplicate(semantic.length ? semantic : fallbackFilms(html))
+}
+
+export function hasNextFilmsPage(html: string, nextPage: number): boolean {
+  return nextPageLink(html, `/films/page/${nextPage}/`)
 }

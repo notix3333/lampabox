@@ -37,4 +37,26 @@ describe('Worker endpoint', () => {
       error: { code: 'INVALID_LIST' },
     })
   })
+
+  it('rejects unsafe usernames on the watched endpoint', async () => {
+    const response = await handleRequest(
+      new Request('https://worker.example/watched/not%2Fa%2Fusername'),
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'INVALID_USERNAME' },
+    })
+  })
+
+  it('rejects unbounded watched-page requests', async () => {
+    const response = await handleRequest(
+      new Request('https://worker.example/watched/test?page=101'),
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'INVALID_PAGE' },
+    })
+  })
 })
