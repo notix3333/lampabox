@@ -8,7 +8,9 @@ const {
   normalizeTitle,
   parseListEntries,
   pickBestTmdbResult,
+  rememberWatchedTmdb,
   retryWithBackoff,
+  updateWatchedFlags,
 } = require('../letterboxd-watchlist.js')
 
 test('normalizeTitle normalizes Unicode and whitespace', () => {
@@ -136,6 +138,18 @@ test('filterCatalogMovies exposes only all, watched and unwatched modes', () => 
   assert.deepEqual(filterCatalogMovies(movies, 'watched').map((movie) => movie.id), [1, 2])
   assert.deepEqual(filterCatalogMovies(movies, 'unwatched').map((movie) => movie.id), [3])
   assert.deepEqual(filterCatalogMovies(movies, 'all').map((movie) => movie.id), [1, 2, 3])
+})
+
+test('watched status survives cloned full-catalog cards through TMDB identity', () => {
+  rememberWatchedTmdb({ id: 550, media_type: 'movie' })
+  const clonedCatalogCard = updateWatchedFlags({
+    id: 550,
+    media_type: 'movie',
+    title: 'Fight Club',
+    release_date: '1999-10-15',
+  })
+
+  assert.equal(clonedCatalogCard.letterboxd_watched, true)
 })
 
 test('mapWithConcurrency keeps result order and respects the limit', async () => {

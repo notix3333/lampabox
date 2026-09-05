@@ -1253,7 +1253,9 @@
       normalizeTitle,
       parseListEntries,
       pickBestTmdbResult,
+      rememberWatchedTmdb,
       retryWithBackoff,
+      updateWatchedFlags,
     }
   }
 
