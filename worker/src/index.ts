@@ -101,7 +101,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     }
 
     try {
-      const { films, nextPage } = await fetchWatchedPage(watchedUsername, page)
+      const { films, nextPage, total } = await fetchWatchedPage(watchedUsername, page)
       const result: WatchedResponse = {
         version: 1,
         kind: 'watched',
@@ -109,6 +109,7 @@ export async function handleRequest(request: Request): Promise<Response> {
         title: 'Letterboxd Watched',
         page,
         nextPage,
+        total,
         fetchedAt: new Date().toISOString(),
         films,
       }

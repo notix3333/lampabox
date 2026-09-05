@@ -126,7 +126,7 @@ test('isWatchedInLampa accepts an explicit mark or completed playback', () => {
   assert.equal(isWatchedInLampa({ original_title: 'Arrival' }, completed), true)
 })
 
-test('filterCatalogMovies distinguishes combined and source-specific statuses', () => {
+test('filterCatalogMovies exposes only all, watched and unwatched modes', () => {
   const movies = [
     { id: 1, letterboxd_watched: true, lampa_watched: false },
     { id: 2, letterboxd_watched: false, lampa_watched: true },
@@ -135,8 +135,7 @@ test('filterCatalogMovies distinguishes combined and source-specific statuses', 
 
   assert.deepEqual(filterCatalogMovies(movies, 'watched').map((movie) => movie.id), [1, 2])
   assert.deepEqual(filterCatalogMovies(movies, 'unwatched').map((movie) => movie.id), [3])
-  assert.deepEqual(filterCatalogMovies(movies, 'letterboxd').map((movie) => movie.id), [1])
-  assert.deepEqual(filterCatalogMovies(movies, 'lampa').map((movie) => movie.id), [2])
+  assert.deepEqual(filterCatalogMovies(movies, 'all').map((movie) => movie.id), [1, 2, 3])
 })
 
 test('mapWithConcurrency keeps result order and respects the limit', async () => {
@@ -163,13 +162,19 @@ test('Lampa integration registers settings and loads the Worker only once per se
   const registeredComponents = []
   const menuButtons = []
   const activities = []
+  const replacements = []
+  const selections = []
 
   delete require.cache[pluginPath]
   delete global.plugin_letterboxd_watchlist_ready
   global.appready = true
   global.Lampa = {
     Api: { search: () => {} },
-    Activity: { push: (activity) => activities.push(activity) },
+    Activity: {
+      push: (activity) => activities.push(activity),
+      replace: (activity) => replacements.push(activity),
+    },
+    Background: { change: () => {} },
     Component: {
       add: (name, constructor) => registeredComponents.push({ name, constructor }),
     },
@@ -183,6 +188,9 @@ test('Lampa integration registers settings and loads the Worker only once per se
       },
     },
     Noty: { show: () => {} },
+    Router: { call: () => {} },
+    Select: { show: (selection) => selections.push(selection) },
+    Controller: { toggle: () => {} },
     Reguest: class {
       timeout() {}
       native(url, resolve) {
@@ -245,8 +253,18 @@ test('Lampa integration registers settings and loads the Worker only once per se
   catalog.create()
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(catalogLines[0].title, 'Фильтр и статусы')
-  assert.equal(catalogLines[0].wide, true)
+  assert.equal(catalogLines[0].wide, undefined)
   assert.equal(catalogLines[0].results[0].letterboxd_control, 'filter')
+
+  const filterLine = {}
+  catalog.onAppend(filterLine)
+  filterLine.onSelect(null, catalogLines[0].results[0])
+  assert.deepEqual(
+    selections[0].items.map((item) => item.value),
+    ['all', 'watched', 'unwatched'],
+  )
+  selections[0].onSelect({ value: 'watched' })
+  assert.deepEqual(replacements[0], { filter: 'watched' })
 
   delete require.cache[pluginPath]
   delete global.plugin_letterboxd_watchlist_ready
@@ -337,6 +355,104 @@ test('Lampa integration appends TMDB matches to an already visible row', async (
     line.items.map((item) => item.id),
     [1, 2],
   )
+
+  delete require.cache[pluginPath]
+  delete global.plugin_letterboxd_watchlist_ready
+  delete global.appready
+  delete global.Lampa
+})
+
+test('watched filter builds the complete Letterboxd catalog plus Lampa viewed items', async () => {
+  const pluginPath = require.resolve('../letterboxd-watchlist.js')
+  const registeredComponents = []
+  let catalogLines
+
+  delete require.cache[pluginPath]
+  delete global.plugin_letterboxd_watchlist_ready
+  global.appready = true
+  global.Lampa = {
+    Api: {
+      search: (_query, callback) => {
+        callback({
+          movie: {
+            results: [
+              {
+                id: 42,
+                title: 'Arrival',
+                original_title: 'Arrival',
+                release_date: '2016-11-11',
+              },
+            ],
+          },
+          tv: { results: [] },
+        })
+      },
+    },
+    Activity: { push: () => {}, replace: () => {} },
+    Component: {
+      add: (name, constructor) => registeredComponents.push({ name, constructor }),
+    },
+    ContentRows: { add: () => {} },
+    Favorite: {
+      check: (movie) => ({ viewed: movie.id === 7 }),
+      get: () => [
+        {
+          id: 7,
+          title: 'Lampa movie',
+          original_title: 'Lampa movie',
+          release_date: '2020-01-01',
+        },
+      ],
+    },
+    InteractionMain: function () {},
+    Listener: { follow: () => {}, remove: () => {} },
+    Menu: { addButton: () => ({ attr: () => {} }) },
+    Noty: { show: () => {} },
+    Reguest: class {
+      timeout() {}
+      native(url, resolve) {
+        if (url.includes('/watched/')) {
+          resolve({
+            version: 1,
+            films: [{ title: 'Arrival', year: 2016, slug: 'arrival-2016' }],
+            nextPage: null,
+          })
+          return
+        }
+        resolve({ version: 1, films: [] })
+      }
+    },
+    SettingsApi: { addComponent: () => {}, addParam: () => {} },
+    Storage: {
+      get: (name, fallback) => {
+        if (name === 'letterboxd_watchlist_username') return 'alice'
+        if (name === 'letterboxd_public_lists') return ''
+        if (name === 'letterboxd_watchlist_api_url') return 'https://worker.example'
+        return fallback
+      },
+    },
+    Timeline: { watched: () => null },
+    Utils: {
+      createInstance: () => ({
+        activity: { loader: () => {} },
+        build: (lines) => {
+          catalogLines = lines
+        },
+      }),
+    },
+  }
+
+  require(pluginPath)
+  const catalog = registeredComponents[0].constructor({ filter: 'watched' })
+  catalog.create()
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.equal(catalogLines.length, 3)
+  assert.equal(catalogLines[1].title, 'Просмотрено в Letterboxd · 1/1')
+  assert.equal(catalogLines[1].results[0].id, 42)
+  assert.equal(catalogLines[1].results[0].letterboxd_watched, true)
+  assert.equal(catalogLines[2].title, 'Просмотрено в Lampa · 1')
+  assert.equal(catalogLines[2].results[0].id, 7)
 
   delete require.cache[pluginPath]
   delete global.plugin_letterboxd_watchlist_ready

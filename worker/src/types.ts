@@ -30,6 +30,7 @@ export interface WatchedResponse {
   title: string
   page: number
   nextPage: number | null
+  total: number | null
   fetchedAt: string
   films: LetterboxdFilm[]
 }

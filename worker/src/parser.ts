@@ -195,6 +195,24 @@ export function parseFilmsPage(html: string): LetterboxdFilm[] {
   return deduplicate(semantic.length ? semantic : fallbackFilms(html))
 }
 
+export function parseFilmsTotal(html: string): number | null {
+  const document = parseDocument(html)
+  const countElement = DomUtils.findOne(
+    (node) => {
+      if (!isElement(node)) return false
+      const value = node.attribs.title || ''
+      return /^\s*[\d,\s\u00a0]+\s+films?\s*$/i.test(value)
+    },
+    document.children,
+  )
+
+  if (!countElement || !isElement(countElement)) return null
+
+  const digits = (countElement.attribs.title || '').replace(/[^\d]/g, '')
+  const total = Number(digits)
+  return Number.isInteger(total) && total >= 0 ? total : null
+}
+
 export function hasNextFilmsPage(html: string, nextPage: number): boolean {
   return nextPageLink(html, `/films/page/${nextPage}/`)
 }

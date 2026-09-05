@@ -2,7 +2,7 @@
   'use strict'
 
   const PLUGIN_NAME = 'Letterboxd Watchlist'
-  const PLUGIN_VERSION = '1.2.1'
+  const PLUGIN_VERSION = '1.3.0'
   const STORAGE_USERNAME = 'letterboxd_watchlist_username'
   const STORAGE_LISTS = 'letterboxd_public_lists'
   const STORAGE_API_URL = 'letterboxd_watchlist_api_url'
@@ -11,19 +11,19 @@
   const REQUEST_RETRY_DELAYS = [250, 500]
   const TMDB_RETRY_DELAYS = [200, 400]
   const TMDB_TIMEOUT_MS = 15000
-  const WATCHED_PAGE_DELAY_MS = 1200
+  const WATCHED_PAGE_DELAY_MS = 2000
+  const WATCHED_REQUEST_RETRY_DELAYS = [1500, 4000, 10000]
   const CATALOG_COMPONENT = 'letterboxd_catalog'
   const FILTERS = [
     { value: 'all', title: 'Все' },
     { value: 'watched', title: 'Просмотрено' },
     { value: 'unwatched', title: 'Не просмотрено' },
-    { value: 'letterboxd', title: 'Просмотрено в Letterboxd' },
-    { value: 'lampa', title: 'Просмотрено в Lampa' },
   ]
 
   const sourceStates = Object.create(null)
   const watchedSlugs = Object.create(null)
   const watchedTitleYears = Object.create(null)
+  const watchedTmdb = Object.create(null)
   const observedLines = []
   let errorShown = false
   let watchedPromise = null
@@ -75,6 +75,21 @@
     return clone
   }
 
+  function mediaType(item) {
+    return item && (item.media_type === 'tv' || item.name || item.original_name || item.first_air_date)
+      ? 'tv'
+      : 'movie'
+  }
+
+  function tmdbKey(item) {
+    return item && item.id ? `${mediaType(item)}:${item.id}` : ''
+  }
+
+  function rememberWatchedTmdb(movie) {
+    const key = tmdbKey(movie)
+    if (key) watchedTmdb[key] = true
+  }
+
   function localizedTitle(item) {
     return item && (item.title || item.name)
   }
@@ -108,6 +123,7 @@
 
     movie.letterboxd_watched = Boolean(
       (movie.letterboxd_slug && watchedSlugs[movie.letterboxd_slug]) ||
+        (tmdbKey(movie) && watchedTmdb[tmdbKey(movie)]) ||
         titleYearKeys(movie).some(function (key) {
           return watchedTitleYears[key]
         }),
@@ -123,8 +139,6 @@
     return movies.filter(function (movie) {
       if (filter === 'watched') return Boolean(movie.letterboxd_watched || movie.lampa_watched)
       if (filter === 'unwatched') return !movie.letterboxd_watched && !movie.lampa_watched
-      if (filter === 'letterboxd') return Boolean(movie.letterboxd_watched)
-      if (filter === 'lampa') return Boolean(movie.lampa_watched)
       return true
     })
   }
@@ -398,6 +412,10 @@
   }
 
   function requestCollection(config, apiBaseUrl) {
+    const retryDelays = config.kind === 'watched'
+      ? WATCHED_REQUEST_RETRY_DELAYS
+      : REQUEST_RETRY_DELAYS
+
     return retryWithBackoff(
       function () {
         return new Promise(function (resolve, reject) {
@@ -413,7 +431,7 @@
           network.native(apiBaseUrl + path, resolve, reject)
         })
       },
-      REQUEST_RETRY_DELAYS,
+      retryDelays,
       null,
       shouldRetryWorkerRequest,
     )
@@ -445,7 +463,7 @@
     global.Lampa.Noty.show(message)
   }
 
-  function ensureWatched(username, apiBaseUrl) {
+  function ensureWatched(username, apiBaseUrl, watchedState) {
     if (watchedPromise) return watchedPromise
     if (!username) return Promise.resolve(watchedSlugs)
 
@@ -476,6 +494,13 @@
           })
         })
 
+        const expectedTotal = Number(payload.total)
+        if (watchedState && Number.isInteger(expectedTotal) && expectedTotal >= payload.films.length) {
+          watchedState.expectedTotal = Math.max(watchedState.expectedTotal, expectedTotal)
+        }
+
+        if (watchedState) addFilmsToState(watchedState, payload.films)
+
         refreshWatchedCards()
 
         const nextPage = Number(payload.nextPage)
@@ -499,11 +524,45 @@
       .catch(function (error) {
         log(`Letterboxd watched partially received: ${Object.keys(watchedSlugs).length}`, error)
         if (!Object.keys(watchedSlugs).length) notifyOnce(notificationFor(error))
+        if (watchedState) {
+          watchedState.completed = true
+          watchedState.resolveReady()
+          watchedState.resolveDone()
+        }
         refreshWatchedCards()
         return watchedSlugs
       })
 
     return watchedPromise
+  }
+
+  function applyBadges(view, data, containerClass) {
+    if (!view) return
+    updateWatchedFlags(data)
+
+    const className = containerClass || 'letterboxd-card-badges'
+    const previous = view.querySelector(`.${className}`)
+    if (previous) previous.remove()
+    if (!data.letterboxd_watched && !data.lampa_watched) return
+
+    const badges = document.createElement('div')
+    badges.className = className
+
+    if (data.letterboxd_watched) {
+      const badge = document.createElement('div')
+      badge.className = 'letterboxd-card-badge letterboxd-card-badge--letterboxd'
+      badge.textContent = 'Letterboxd ✓'
+      badges.appendChild(badge)
+    }
+
+    if (data.lampa_watched) {
+      const badge = document.createElement('div')
+      badge.className = 'letterboxd-card-badge letterboxd-card-badge--lampa'
+      badge.textContent = 'Lampa ✓'
+      badges.appendChild(badge)
+    }
+
+    view.appendChild(badges)
   }
 
   function decorateCard(card) {
@@ -513,34 +572,44 @@
       !card.data ||
       typeof card.render !== 'function'
     ) return
-    updateWatchedFlags(card.data)
 
     const html = card.render(true)
     const view = html && html.querySelector ? html.querySelector('.card__view') : null
-    if (!view) return
+    applyBadges(view, card.data)
+  }
 
-    const previous = view.querySelector('.letterboxd-card-badges')
-    if (previous) previous.remove()
-    if (!card.data.letterboxd_watched && !card.data.lampa_watched) return
+  function decorateCardElement(element) {
+    if (!element || !element.querySelector || !element.card_data) return
+    applyBadges(element.querySelector('.card__view'), element.card_data)
+  }
 
-    const badges = document.createElement('div')
-    badges.className = 'letterboxd-card-badges'
+  function decorateCardsIn(root) {
+    if (!root || !root.querySelectorAll) return
+    if (root.matches && root.matches('.card')) decorateCardElement(root)
+    root.querySelectorAll('.card').forEach(decorateCardElement)
+  }
 
-    if (card.data.letterboxd_watched) {
-      const badge = document.createElement('div')
-      badge.className = 'letterboxd-card-badge letterboxd-card-badge--letterboxd'
-      badge.textContent = 'Letterboxd ✓'
-      badges.appendChild(badge)
-    }
+  function decorateFull(event) {
+    if (!event || event.type !== 'complite' || !event.data || !event.data.movie) return
+    const body = event.body && event.body[0] ? event.body[0] : event.body
+    const poster = body && body.querySelector
+      ? body.querySelector('.full-start-new__poster, .full-start__poster')
+      : null
+    applyBadges(poster, event.data.movie, 'letterboxd-full-badges')
+  }
 
-    if (card.data.lampa_watched) {
-      const badge = document.createElement('div')
-      badge.className = 'letterboxd-card-badge letterboxd-card-badge--lampa'
-      badge.textContent = 'Lampa ✓'
-      badges.appendChild(badge)
-    }
+  function registerCardObserver() {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
 
-    view.appendChild(badges)
+    const observer = new MutationObserver(function (mutations) {
+      mutations.forEach(function (mutation) {
+        mutation.addedNodes.forEach(function (node) {
+          if (node && node.nodeType === 1) decorateCardsIn(node)
+        })
+      })
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    decorateCardsIn(document)
   }
 
   function decorateStateCards(state) {
@@ -554,6 +623,7 @@
     observedLines.forEach(function (entry) {
       entry.items.forEach(decorateCard)
     })
+    if (typeof document !== 'undefined') decorateCardsIn(document)
   }
 
   function createSourceState(config) {
@@ -567,11 +637,13 @@
       settled: [],
       nextFlushIndex: 0,
       total: 0,
+      expectedTotal: 0,
       completed: false,
       started: false,
       readyResolved: false,
       doneResolved: false,
       lines: [],
+      seen: Object.create(null),
       ready: new Promise(function (resolve) {
         resolveReady = resolve
       }),
@@ -615,6 +687,7 @@
       state.nextFlushIndex += 1
 
       if (match) {
+        if (state.config.kind === 'watched') rememberWatchedTmdb(match)
         state.results.push(updateWatchedFlags(match))
         appendPendingCards(state)
       }
@@ -630,6 +703,34 @@
     }
   }
 
+  function addFilmsToState(state, films) {
+    const fresh = (Array.isArray(films) ? films : []).filter(function (film) {
+      if (!film || !film.slug || state.seen[film.slug]) return false
+      state.seen[film.slug] = true
+      return true
+    })
+    if (!fresh.length) return Promise.resolve([])
+
+    const offset = state.total
+    state.total += fresh.length
+    state.completed = false
+
+    return mapWithConcurrency(
+      fresh,
+      MAX_TMDB_CONCURRENCY,
+      function (film) {
+        return runTmdbTask(function () {
+          return searchTmdb(film)
+        })
+      },
+      function (match, index) {
+        state.matches[offset + index] = match
+        state.settled[offset + index] = true
+        flushSettled(state)
+      },
+    )
+  }
+
   function loadSource(state, apiBaseUrl) {
     if (state.started) return state.ready
     state.started = true
@@ -642,6 +743,9 @@
 
         state.title = String(payload.title || state.title)
         state.total = payload.films.length
+        payload.films.forEach(function (film) {
+          if (film && film.slug) state.seen[film.slug] = true
+        })
         log(`${state.title}: received ${state.total}`)
 
         if (!state.total) {
@@ -764,7 +868,8 @@
     const style = document.createElement('style')
     style.id = 'letterboxd-plugin-styles'
     style.textContent = `
-      .letterboxd-card-badges {
+      .letterboxd-card-badges,
+      .letterboxd-full-badges {
         position: absolute;
         z-index: 4;
         top: .55em;
@@ -775,6 +880,13 @@
         align-items: flex-start;
         gap: .28em;
         pointer-events: none;
+      }
+      .full-start-new__poster,
+      .full-start__poster {
+        position: relative;
+      }
+      .letterboxd-full-badges {
+        font-size: 1.05em;
       }
       .letterboxd-card-badge {
         padding: .28em .55em;
@@ -811,26 +923,43 @@
 
   function filterArtwork(filter) {
     const info = filterInfo(filter)
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="780" height="439" viewBox="0 0 780 439"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101820"/><stop offset=".52" stop-color="#26343f"/><stop offset="1" stop-color="#0b6b45"/></linearGradient></defs><rect width="780" height="439" rx="28" fill="url(#g)"/><circle cx="590" cy="220" r="86" fill="#00e054" opacity=".92"/><circle cx="652" cy="220" r="86" fill="#40bcf4" opacity=".86"/><circle cx="714" cy="220" r="86" fill="#ff8000" opacity=".84"/><text x="48" y="84" fill="#fff" font-family="Arial,sans-serif" font-size="30" font-weight="700">LETTERBOXD</text><text x="48" y="150" fill="#fff" font-family="Arial,sans-serif" font-size="42" font-weight="700">${info.title}</text><text x="48" y="204" fill="#d8e2e8" font-family="Arial,sans-serif" font-size="24">Нажмите, чтобы изменить фильтр</text></svg>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101820"/><stop offset=".56" stop-color="#26343f"/><stop offset="1" stop-color="#0b6b45"/></linearGradient></defs><rect width="500" height="750" rx="32" fill="url(#g)"/><text x="40" y="76" fill="#fff" font-family="Arial,sans-serif" font-size="30" font-weight="700">LETTERBOXD</text><text x="40" y="145" fill="#fff" font-family="Arial,sans-serif" font-size="38" font-weight="700">${info.title}</text><text x="40" y="205" fill="#d8e2e8" font-family="Arial,sans-serif" font-size="22">Изменить фильтр</text><circle cx="160" cy="580" r="78" fill="#00e054" opacity=".92"/><circle cx="250" cy="580" r="78" fill="#40bcf4" opacity=".86"/><circle cx="340" cy="580" r="78" fill="#ff8000" opacity=".84"/></svg>`
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
   }
 
-  function createCatalogLines(sources, filter) {
+  function lampaViewedMovies() {
+    try {
+      if (!global.Lampa.Favorite || typeof global.Lampa.Favorite.get !== 'function') return []
+      const items = global.Lampa.Favorite.get({ type: 'viewed' })
+      return Array.isArray(items) ? items.map(updateWatchedFlags) : []
+    } catch (error) {
+      log('Lampa viewed catalog failed:', error && error.message ? error.message : error)
+      return []
+    }
+  }
+
+  function createCatalogLines(sources, filter, watchedState) {
     let total = 0
     let visible = 0
     const lines = []
 
-    sources.forEach(function (config) {
-      const state = sourceStates[config.key]
-      if (!state) return
-      state.results.forEach(updateWatchedFlags)
-      total += state.results.length
-      visible += filterCatalogMovies(state.results, filter).length
-    })
+    if (filter === 'watched') {
+      const letterboxdResults = watchedState ? watchedState.results : []
+      const lampaResults = lampaViewedMovies()
+      total = (watchedState ? watchedState.expectedTotal || watchedState.total : 0) + lampaResults.length
+      visible = letterboxdResults.length + lampaResults.length
+    } else {
+      sources.forEach(function (config) {
+        const state = sourceStates[config.key]
+        if (!state) return
+        state.results.forEach(updateWatchedFlags)
+        total += state.results.length
+        visible += filterCatalogMovies(state.results, filter).length
+      })
+    }
 
     lines.push({
       title: 'Фильтр и статусы',
-      wide: true,
       results: [
         {
           title: `Фильтр: ${filterInfo(filter).title}`,
@@ -843,6 +972,32 @@
       total_pages: 1,
       nomore: true,
     })
+
+    if (filter === 'watched') {
+      const letterboxdResults = watchedState
+        ? watchedState.results.map(cloneCardData)
+        : []
+      lines.push({
+        title: `Просмотрено в Letterboxd · ${letterboxdResults.length}/${watchedState ? watchedState.expectedTotal || watchedState.total : 0}`,
+        results: letterboxdResults,
+        total_pages: 1,
+        nomore: true,
+        letterboxd_source: watchedState ? watchedState.config.key : '',
+        letterboxd_filter: 'all',
+      })
+
+      const lampaResults = lampaViewedMovies().map(cloneCardData)
+      if (lampaResults.length) {
+        lines.push({
+          title: `Просмотрено в Lampa · ${lampaResults.length}`,
+          results: lampaResults,
+          total_pages: 1,
+          nomore: true,
+        })
+      }
+
+      return lines
+    }
 
     sources.forEach(function (config) {
       const state = sourceStates[config.key]
@@ -883,7 +1038,7 @@
     })
   }
 
-  function createCatalogComponent(sources, apiBaseUrl) {
+  function createCatalogComponent(sources, apiBaseUrl, watchedState) {
     return function (object) {
       const component = global.Lampa.Utils.createInstance(global.Lampa.InteractionMain, object)
       const filter = filterInfo(object.filter).value
@@ -892,16 +1047,18 @@
 
       component.create = function () {
         const username = String(global.Lampa.Storage.get(STORAGE_USERNAME, '') || '').trim()
-        const readiness = sources.map(function (config) {
-          const state = sourceStates[config.key]
-          return state ? loadSource(state, apiBaseUrl) : Promise.resolve([])
-        })
+        const readiness = filter === 'watched'
+          ? [watchedState ? watchedState.ready : Promise.resolve([])]
+          : sources.map(function (config) {
+              const state = sourceStates[config.key]
+              return state ? loadSource(state, apiBaseUrl) : Promise.resolve([])
+            })
 
         if (component.activity && typeof component.activity.loader === 'function') {
           component.activity.loader(true)
         }
 
-        ensureWatched(username, apiBaseUrl)
+        ensureWatched(username, apiBaseUrl, watchedState)
 
         stateListener = function (event) {
           if (!event || (event.target !== 'favorite' && event.target !== 'timeline')) return
@@ -921,11 +1078,11 @@
         Promise.all(readiness)
           .then(function () {
             if (destroyed) return
-            component.build(createCatalogLines(sources, filter))
+            component.build(createCatalogLines(sources, filter, watchedState))
           })
           .catch(function (error) {
             log('catalog error:', error)
-            if (!destroyed) component.build(createCatalogLines(sources, filter))
+            if (!destroyed) component.build(createCatalogLines(sources, filter, watchedState))
           })
       }
 
@@ -949,7 +1106,7 @@
     }
   }
 
-  function registerCatalog(sources, apiBaseUrl) {
+  function registerCatalog(sources, apiBaseUrl, watchedState) {
     if (
       !global.Lampa.Component ||
       !global.Lampa.Menu ||
@@ -962,7 +1119,7 @@
 
     global.Lampa.Component.add(
       CATALOG_COMPONENT,
-      createCatalogComponent(sources, apiBaseUrl),
+      createCatalogComponent(sources, apiBaseUrl, watchedState),
     )
 
     const icon = '<svg class="letterboxd-menu-icon" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="17" cy="32" r="11" fill="#00e054"/><circle cx="32" cy="32" r="11" fill="#40bcf4"/><circle cx="47" cy="32" r="11" fill="#ff8000"/></svg>'
@@ -1069,10 +1226,21 @@
     }
     registerLineListener()
     if (sources.length) registerContentRows(sources, apiBaseUrl)
-    registerCatalog(sources, apiBaseUrl)
 
     const username = String(global.Lampa.Storage.get(STORAGE_USERNAME, '') || '').trim()
-    if (username) ensureWatched(username, apiBaseUrl)
+    const watchedState = username
+      ? createSourceState({
+          kind: 'watched',
+          username: username,
+          key: `watched:${username.toLowerCase()}`,
+          title: 'Просмотрено в Letterboxd',
+        })
+      : null
+
+    registerCatalog(sources, apiBaseUrl, watchedState)
+    registerCardObserver()
+    global.Lampa.Listener.follow('full', decorateFull)
+    if (username) ensureWatched(username, apiBaseUrl, watchedState)
     log('plugin initialized', PLUGIN_VERSION)
   }
 

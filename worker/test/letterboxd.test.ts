@@ -140,7 +140,28 @@ describe('fetchWatchlist', () => {
     await expect(fetchWatchedPage('alice', 2, fetcher)).resolves.toEqual({
       films: [{ title: 'Arrival', year: 2016, slug: 'arrival-2016' }],
       nextPage: 3,
+      total: null,
     })
     expect(fetcher.mock.calls[0][0]).toBe('https://letterboxd.com/alice/films/page/2/')
   })
+
+  it('falls back to the official embed host for a challenged watched page', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('', { status: 403 }))
+      .mockResolvedValueOnce(
+        new Response(`
+          <html><body>
+            <div data-item-name="Heat (1995)" data-item-slug="heat-1995"></div>
+          </body></html>`),
+      )
+
+    await expect(fetchWatchedPage('alice', 2, fetcher)).resolves.toEqual({
+      films: [{ title: 'Heat', year: 1995, slug: 'heat-1995' }],
+      nextPage: null,
+      total: null,
+    })
+    expect(fetcher.mock.calls[1][0]).toBe('https://embed.letterboxd.com/alice/films/page/2/')
+  })
+
 })

@@ -7,6 +7,7 @@ import {
   parseListPage,
   parseListTitle,
   parseFilmsPage,
+  parseFilmsTotal,
   parseWatchlistPage,
 } from '../src/parser'
 import { AppError } from '../src/types'
@@ -79,5 +80,10 @@ describe('parseFilmsPage', () => {
     ])
     expect(hasNextFilmsPage(html, 2)).toBe(true)
     expect(hasNextFilmsPage(html, 3)).toBe(false)
+  })
+
+  it('extracts the exact profile film count', () => {
+    expect(parseFilmsTotal('<h1><span class="tooltip" title="1,234&nbsp;films">Watched</span></h1>')).toBe(1234)
+    expect(parseFilmsTotal('<html><body><div class="poster-list"></div></body></html>')).toBe(null)
   })
 })

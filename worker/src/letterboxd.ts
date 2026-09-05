@@ -6,6 +6,7 @@ import {
   parseListPage,
   parseListTitle,
   parseFilmsPage,
+  parseFilmsTotal,
   parseWatchlistPage,
 } from './parser'
 
@@ -13,8 +14,9 @@ export const MAX_LETTERBOXD_PAGES = 100
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 const LETTERBOXD_ORIGIN = 'https://letterboxd.com'
+const LETTERBOXD_EMBED_ORIGIN = 'https://embed.letterboxd.com'
 const USER_AGENT =
-  'Mozilla/5.0 (compatible; LampaLetterboxdWatchlist/1.2.1; +https://github.com/notix3333/lampabox)'
+  'Mozilla/5.0 (compatible; LampaLetterboxdWatchlist/1.3.0; +https://github.com/notix3333/lampabox)'
 const RETRY_DELAYS_MS = [250, 500]
 
 type Fetcher = typeof fetch
@@ -32,19 +34,23 @@ const UPSTREAM_HEADERS = {
 
 const sleep: Sleeper = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))
 
-function pageUrl(target: CollectionTarget, page: number): string {
+function pageUrl(
+  target: CollectionTarget,
+  page: number,
+  origin = LETTERBOXD_ORIGIN,
+): string {
   const encodedUsername = encodeURIComponent(target.username)
   const suffix = page === 1 ? '' : `page/${page}/`
 
   if (target.kind === 'watchlist') {
-    return `${LETTERBOXD_ORIGIN}/${encodedUsername}/watchlist/${suffix}`
+    return `${origin}/${encodedUsername}/watchlist/${suffix}`
   }
 
   if (target.kind === 'watched') {
-    return `${LETTERBOXD_ORIGIN}/${encodedUsername}/films/${suffix}`
+    return `${origin}/${encodedUsername}/films/${suffix}`
   }
 
-  return `${LETTERBOXD_ORIGIN}/${encodedUsername}/list/${encodeURIComponent(target.slug)}/${suffix}`
+  return `${origin}/${encodedUsername}/list/${encodeURIComponent(target.slug)}/${suffix}`
 }
 
 function isBlockedPage(html: string): boolean {
@@ -153,7 +159,18 @@ async function fetchCollectionPage(
   fetcher: Fetcher,
   sleeper: Sleeper,
 ): Promise<string> {
-  const response = await fetchWithRetry(pageUrl(target, page), fetcher, sleeper)
+  let response = await fetchWithRetry(pageUrl(target, page), fetcher, sleeper)
+
+  // Letterboxd occasionally challenges a single public host while its official
+  // embed host remains reachable. Keep the fallback limited to public watched
+  // pages so list/watchlist error classification remains deterministic.
+  if (target.kind === 'watched' && (response.status === 403 || response.status === 429)) {
+    response = await fetchWithRetry(
+      pageUrl(target, page, LETTERBOXD_EMBED_ORIGIN),
+      fetcher,
+      sleeper,
+    )
+  }
 
   if (response.status === 403 || response.status === 429) {
     throw new AppError('LETTERBOXD_BLOCKED', 'Letterboxd blocked the request', 502)
@@ -171,6 +188,10 @@ async function fetchCollectionPage(
   }
 
   const html = await response.text()
+  return validateCollectionHtml(html, target)
+}
+
+function validateCollectionHtml(html: string, target: CollectionTarget): string {
   if (new TextEncoder().encode(html).byteLength > MAX_RESPONSE_BYTES) {
     throw new AppError('LETTERBOXD_ERROR', 'Letterboxd response is too large', 502)
   }
@@ -283,7 +304,7 @@ export async function fetchWatchedPage(
   page: number,
   fetcher: Fetcher = fetch,
   sleeper: Sleeper = sleep,
-): Promise<{ films: LetterboxdFilm[]; nextPage: number | null }> {
+): Promise<{ films: LetterboxdFilm[]; nextPage: number | null; total: number | null }> {
   const target: CollectionTarget = { kind: 'watched', username }
   const html = await fetchCollectionPage(target, page, fetcher, sleeper)
   const films = parseFilmsPage(html)
@@ -291,5 +312,6 @@ export async function fetchWatchedPage(
   return {
     films,
     nextPage: hasNextFilmsPage(html, page + 1) ? page + 1 : null,
+    total: parseFilmsTotal(html),
   }
 }
