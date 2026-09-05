@@ -1,0 +1,17 @@
+{
+  "name": "lampa-letterboxd-watchlist",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public Letterboxd watchlist row for Lampa 3.0+",
+  "scripts": {
+    "build": "npm run build:worker && npm run build:plugin",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "build:worker": "npm --prefix worker run build",
+    "test": "npm --prefix worker test && node --test plugin/test/*.test.js",
+    "typecheck": "npm --prefix worker run typecheck"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@11.11.0"
+}

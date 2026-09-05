@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci --prefix worker
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          API_BASE_URL: ${{ vars.LETTERBOXD_API_BASE_URL || 'https://example.workers.dev' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: letterboxd-watchlist-plugin
+          path: dist/letterboxd-watchlist.js
+          if-no-files-found: error
