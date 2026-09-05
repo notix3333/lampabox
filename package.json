@@ -7,6 +7,8 @@
     "build": "npm run build:worker && npm run build:plugin",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:worker": "npm --prefix worker run build",
+    "dev:worker:lan": "npm --prefix worker run dev -- --ip 0.0.0.0",
+    "serve:plugin": "node scripts/serve-plugin.mjs",
     "test": "npm --prefix worker test && node --test plugin/test/*.test.js",
     "typecheck": "npm --prefix worker run typecheck"
   },

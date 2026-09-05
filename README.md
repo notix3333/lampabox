@@ -81,13 +81,13 @@ const API_BASE_URL = 'https://lampa-letterboxd-watchlist.<account>.workers.dev'
 
 ### 3. Установка в Lampa
 
-Уже опубликованный из ветки `main` standalone-файл можно подключить напрямую через jsDelivr:
+Если репозиторий публичный, исходный standalone-файл можно подключить напрямую:
 
 ```text
-https://cdn.jsdelivr.net/gh/notix3333/lampabox@main/plugin/letterboxd-watchlist.js
+https://raw.githubusercontent.com/notix3333/lampabox/main/plugin/letterboxd-watchlist.js
 ```
 
-Он не содержит чужого Worker URL: после установки укажите адрес собственного Worker в настройках плагина.
+В приватном репозитории этот адрес без GitHub-авторизации вернет `404`; в таком случае используйте GitHub Pages, другой HTTPS-хостинг либо описанный ниже локальный режим. Файл не содержит чужого Worker URL: после установки укажите адрес собственного Worker в настройках плагина.
 
 Опубликуйте `dist/letterboxd-watchlist.js` по HTTPS, например через GitHub Pages, и получите прямой URL:
 
@@ -135,6 +135,8 @@ npm run typecheck    # строгая проверка TypeScript
 npm run build:worker # локальная dry-run сборка Wrangler
 npm run build:plugin # standalone JS в dist/
 npm run build        # обе сборки
+npm run serve:plugin # локально раздать JS на порту 8080
+npm run dev:worker:lan # локальный Worker, доступный в LAN
 ```
 
 ## API Worker
@@ -199,6 +201,25 @@ Letterboxd не предоставляет стабильный публичны
 5. Полностью перезапустите Lampa.
 
 Для теста в одной локальной сети можно выполнить `cd worker && npm run dev -- --ip 0.0.0.0`, указать в Lampa адрес компьютера вида `http://192.168.1.10:8787` и открыть плагин с локального HTTPS/HTTP-хостинга. На браузерных сборках Lampa HTTPS может блокировать HTTP Worker как mixed content, поэтому Cloudflare deploy является рекомендуемым вариантом.
+
+Готовый изолированный локальный сценарий из корня репозитория:
+
+```bash
+# Терминал 1 — Worker
+npm run dev:worker:lan
+
+# Терминал 2 — раздача standalone-плагина
+npm run serve:plugin
+```
+
+Узнайте локальный IP компьютера в настройках сети. В Lampa используйте:
+
+```text
+Plugin URL: http://<LAN-IP>:8080/letterboxd-watchlist.js
+Worker URL: http://<LAN-IP>:8787
+```
+
+Обе команды работают только пока открыты терминалы и ничего не устанавливают глобально.
 
 ## Что можно легко добавить дальше
 
