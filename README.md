@@ -4,6 +4,14 @@ Displays a public Letterboxd watchlist and public lists as native content rows i
 
 Плагин для Lampa 3.0+: пользователь указывает публичный Letterboxd username и при желании несколько публичных lists. После перезапуска Lampa получает коллекции и показывает каждую отдельной строкой на главной странице. Фильмы и сериалы открываются как обычные карточки Lampa/TMDB.
 
+## Актуальная ссылка для подключения
+
+Добавьте в Lampa следующий URL плагина и полностью перезапустите приложение:
+
+```text
+https://lampa-letterboxd-watchlist.rexikplay3.workers.dev/letterboxd-watchlist.js?v=1.3.0
+```
+
 ## Архитектура
 
 ```text
