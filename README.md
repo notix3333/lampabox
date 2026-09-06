@@ -6,9 +6,7 @@
 
 ## Demo 
 
-<p align="center">
-  <img src="demo.gif" alt="Demo" width="800">
-</p>
+![Demo](demo.gif)
 
 ## Возможности
 
