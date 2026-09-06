@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-06T00:00:00.000Z",
+  "source": "https://letterboxd.com/lists/popular/",
+  "lists": [
+    {
+      "id": "official-top-500",
+      "title": "Letterboxd's Top 500 Films",
+      "description": "Официальный рейтинг полнометражных фильмов по оценкам пользователей.",
+      "username": "official",
+      "slug": "letterboxds-top-500-films"
+    },
+    {
+      "id": "watch-once",
+      "title": "Movies Everyone Should Watch at Least Once",
+      "description": "Одна из самых популярных пользовательских подборок Letterboxd.",
+      "username": "fcbarcelona",
+      "slug": "movies-everyone-should-watch-at-least-once"
+    },
+    {
+      "id": "feel-something",
+      "title": "For When You Want to Feel Something",
+      "description": "Популярная подборка эмоционального кино.",
+      "username": "ellefnning",
+      "slug": "for-when-you-want-to-feel-something"
+    },
+    {
+      "id": "classic-beginners",
+      "title": "Classic Movies for Beginners",
+      "description": "Доступная точка входа в классическое кино.",
+      "username": "hepburnluv",
+      "slug": "classic-movies-for-beginners"
+    },
+    {
+      "id": "1001-movies",
+      "title": "1001 Movies You Must See Before You Die",
+      "description": "Полная подборка фильмов из одноимённой книжной серии.",
+      "username": "peterstanley",
+      "slug": "1001-movies-you-must-see-before-you-die"
+    },
+    {
+      "id": "most-fans-250",
+      "title": "Top 250 Films with the Most Fans",
+      "description": "Официальный рейтинг фильмов с наибольшим числом поклонников.",
+      "username": "official",
+      "slug": "top-250-films-with-the-most-fans"
+    },
+    {
+      "id": "animated-250",
+      "title": "Top 250 Animated Films",
+      "description": "Официальный рейтинг полнометражной анимации.",
+      "username": "official",
+      "slug": "top-250-animated-films"
+    }
+  ]
+}

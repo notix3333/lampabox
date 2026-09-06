@@ -1,0 +1,31 @@
+{
+  "name": "lampa-letterboxd-watchlist-worker",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "npm --prefix .. run build:plugin",
+    "build": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler deploy --dry-run --outdir=dist",
+    "dev": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler dev --local",
+    "predeploy": "npm --prefix .. run build:plugin",
+    "deploy": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler deploy",
+    "presets:publish": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler kv key put list-presets:v1 --binding WATCHED_CACHE --path presets.json --remote",
+    "login": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler login",
+    "whoami": "env XDG_CONFIG_HOME=../.cache/xdg-config WRANGLER_SEND_METRICS=false wrangler whoami",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "domhandler": "5.0.3",
+    "htmlparser2": "12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.129.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

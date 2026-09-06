@@ -1,0 +1,42 @@
+name: Publish plugin to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - plugin/**
+      - scripts/build-plugin.mjs
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: vars.LETTERBOXD_API_BASE_URL != ''
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run build:plugin
+        env:
+          API_BASE_URL: ${{ vars.LETTERBOXD_API_BASE_URL }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

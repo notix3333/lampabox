@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lampa-letterboxd-watchlist",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-05",
+  "workers_dev": true,
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "assets": {
+    "directory": "../dist",
+    "run_worker_first": ["/watchlist/*", "/list/*", "/watched/*", "/presets"]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "WATCHED_CACHE",
+      "id": "8f54fc2afa5346dc9815a4859877a376"
+    }
+  ]
+}

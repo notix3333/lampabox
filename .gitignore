@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.cache/
+.wrangler/
+.dev.vars
+.DS_Store
+.reference/
+lampabox/
