@@ -1,5 +1,6 @@
-# Lampabox
-
+<p align="center">
+  <img src="logo.png" alt="LampaBox" width="300">
+</p>
 [![CI](https://github.com/notix3333/lampabox/actions/workflows/ci.yml/badge.svg)](https://github.com/notix3333/lampabox/actions/workflows/ci.yml)
 
 Плагин для Lampa 3.0+, который добавляет публичные коллекции Letterboxd в интерфейс Lampa и сопоставляет фильмы и сериалы с TMDB.
